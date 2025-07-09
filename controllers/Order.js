@@ -343,135 +343,120 @@ console.log(req.body);
 }
 
 
-
 exports.launchOrder = async (req, res) => {
+    console.log(req.body);
+    try {
+      const user = await User.findById(req.auth.userId);
+      const agg = await User.findById(user.agg_id);
+      const { currentServicee, amount } = req.body;
   
-  console.log(req.body); 
+      const nowHour = new Date().getHours() + 1;
+      if (user.time !== 24 && (nowHour < 5 || nowHour > user.time)) {
+        return res.status(200).json({
+          status: 1,
+          message: "Vous ne pouvez plus passer de commande à cette heure"
+        });
+      }
   
-  try {
-    const user = await User.findById(req.auth.userId);
-    const agg = await User.findById(user.agg_id);
-    const { currentServicee, amount } = req.body;
-
-    const nowHour = new Date().getHours() + 1;
-    if (user.time !== 24 && (nowHour < 5 || nowHour > user.time)) {
-      return res.status(200).json({
-        status: 1,
-        message: "Vous ne pouvez plus passer de commande à cette heure"
-      });
-    }
-
-    // Vérification du solde agrégateur selon le service
-    const serviceBalances = {
-      "Airtel Money": agg.amBalance,
-      "Moov Money": agg.mmBalance,
-      "Flash Airtel": agg.flashBalance
-    };
-
-    if (
-      serviceBalances[currentServicee] !== undefined &&
-      serviceBalances[currentServicee] < amount
-    ) {
-      return res.status(200).json({
-        status: 1,
-        message: "Le solde de votre agrégateur est insuffisant, contactez-le"
-      });
-    }
-
-    // Agrégation des commandes existantes
-    const result = await Order.aggregate([
-      {
-        $match: {
-          agent_id: req.auth.userId,
-          status: { $in: ["partial", "initial"] }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalAmount: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "initial"] }, "$amount", 0]
-            }
-          },
-          totalRest: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "partial"] }, "$rest", 0]
+      const serviceBalances = {
+        "Airtel Money": agg.amBalance,
+        "Moov Money": agg.mmBalance,
+        "Flash Airtel": agg.flashBalance
+      };
+  
+      if (
+        serviceBalances[currentServicee] !== undefined &&
+        serviceBalances[currentServicee] < amount
+      ) {
+        return res.status(200).json({
+          status: 1,
+          message: "Le solde de votre agrégateur est insuffisant, contactez-le"
+        });
+      }
+  
+      const result = await Order.aggregate([
+        {
+          $match: {
+            agent_id: req.auth.userId,
+            status: { $in: ["partial", "initial"] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalAmount: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "initial"] }, "$amount", 0]
+              }
+            },
+            totalRest: {
+              $sum: {
+                $cond: [{ $eq: ["$status", "partial"] }, "$rest", 0]
+              }
             }
           }
         }
-      }
-    ]);
-
-    const { totalAmount = 0, totalRest = 0 } = result[0] || {};
-    const totalInProgress = totalAmount + totalRest;
-    
-    console.log("totalAmount", totalAmount)
-    console.log("totalRest", totalRest)
-    console.log("totalInProgress", totalInProgress)
-    
-
-    if ((parseInt(totalInProgress) + parseInt(amount)) > user.amount) {
-      return res.status(200).json({
-        status: 1,
-        message: `Vous avez dépassé votre quota en commande, vous ne pouvez commander que ${parseInt(user.amount) - parseInt(totalInProgress)}`
-      });
-    }
-
-    // Mapping pour récupérer le téléphone et le type
-    const serviceMap = {
-      "Flash Airtel": { phone: user.flashPhone, type: "flash" },
-      "Express": { phone: user.expressPhone, type: "express" },
-      "Airtel Money": { phone: user.amPhone, type: "am" },
-      "Moov Money": { phone: user.mmPhone, type: "mm" }
-    };
-
-    const service = serviceMap[currentServicee];
-    if (!service) {
-      return res.status(400).json({ status: 1, message: "Service non reconnu" });
-    }
-
-    const lastOrder = await Order.findOne({
-      agent_id: req.auth.userId,
-      type: service.type
-    }).sort({ date: -1 });
-
-    if (lastOrder) {
-      const diffMinutes =
-        Math.abs(new Date() - new Date(lastOrder.date)) / (1000 * 60);
-
-      const sameAmount = parseInt(lastOrder.amount) === parseInt(amount);
-      const sameType = lastOrder.type === service.type;
-
-      if (diffMinutes <= 10 && sameAmount && sameType) {
-        return res.status(201).json({
+      ]);
+  
+      const { totalAmount = 0, totalRest = 0 } = result[0] || {};
+      const totalInProgress = totalAmount + totalRest;
+  
+      if ((parseInt(totalInProgress) + parseInt(amount)) > user.amount) {
+        return res.status(200).json({
           status: 1,
-          message: "Il s'agit d'une transaction identique, réessayez au moins après 10 min"
+          message: `Vous avez dépassé votre quota en commande, vous ne pouvez commander que ${parseInt(user.amount) - parseInt(totalInProgress)}`
         });
       }
+  
+      const serviceMap = {
+        "Flash Airtel": { phone: user.flashPhone, type: "flash" },
+        "Express": { phone: user.expressPhone, type: "express" },
+        "Airtel Money": { phone: user.amPhone, type: "am" },
+        "Moov Money": { phone: user.mmPhone, type: "mm" }
+      };
+  
+      const service = serviceMap[currentServicee];
+      if (!service) {
+        return res.status(400).json({ status: 1, message: "Service non reconnu" });
+      }
+  
+      const lastOrder = await Order.findOne({
+        agent_id: req.auth.userId,
+        type: service.type,
+        phone: service.phone,
+        amount: parseInt(amount),
+      }).sort({ date: -1 });
+  
+      if (lastOrder) {
+        const diffMinutes = (Date.now() - new Date(lastOrder.date).getTime()) / (1000 * 60);
+        if (diffMinutes <= 10) {
+          return res.status(201).json({
+            status: 1,
+            message: "Commande identique détectée, veuillez réessayer après 10 minutes"
+          });
+        }
+      }
+  
+      const newOrder = new Order({
+        amount: parseInt(amount),
+        phone: service.phone,
+        rec_id: user.rec_id,
+        agg_id: user.agg_id,
+        type: service.type,
+        status: "order",
+        agent_id: req.auth.userId,
+        read: false,
+        date: new Date()
+      });
+  
+      await newOrder.save();
+      return res.status(201).json({ status: 0 });
+  
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ status: 1, message: "Erreur serveur" });
     }
-
-    const newOrder = new Order({
-      amount: parseInt(amount),
-      phone: service.phone,
-      rec_id: user.rec_id,
-      agg_id: user.agg_id,
-      type: service.type,
-      status: "order",
-      agent_id: req.auth.userId,
-      read: false,
-      date: new Date()
-    });
-
-    await newOrder.save();
-    return res.status(201).json({ status: 0 });
-
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ status: 1, message: "Erreur serveur" });
-  }
-};
-
+  };
 
 exports.minutesTest = (req, res) => {
   
