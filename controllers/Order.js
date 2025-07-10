@@ -4,7 +4,6 @@ const WebSocket = require('ws');
 const Deletedorder = require("../models/Deletedorderr");
 const Cash = require("../models/Cash")
 const mongoose = require('mongoose');
-const ObjectId = mongoose.Types.ObjectId;
 
 
 exports.getPendingReturns = async (req, res) => {
@@ -18,7 +17,7 @@ exports.getPendingReturns = async (req, res) => {
       reqq = `agg_id: ${req.auth.userId}`
     
   }else{
-    
+
       reqq = `rec_id: ${req.auth.userId}`
   }
   
@@ -2983,7 +2982,7 @@ exports.manageReturns = async (req, res, next) => {
 }
 
 exports.manageReturns2 = async (req, res) => {
-  try {
+ /* try {
     let short, balance;
     const { phone, type, amount, balance: newBalance, trans_id } = req.body;
     const userId = req.auth.userId;
@@ -3167,5 +3166,7 @@ exports.manageReturns2 = async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.status(505).json({ error: e.message });
-  }
+  } */
+
+    console.log("Yes oooh")
 };
