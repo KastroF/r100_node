@@ -406,6 +406,22 @@ exports.launchOrder = async (req, res) => {
           message: `Vous avez dépassé votre quota en commande, vous ne pouvez commander que ${parseInt(user.amount) - parseInt(totalInProgress)}`
         });
       }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const notRecoveredCount = await Order.countDocuments({
+        agent_id: req.auth.userId,
+        status: { $ne: "recovery" }, // pas encore recouvrée
+        date: { $lt: today }         // toutes les dates avant aujourd'hui
+      });
+
+      if (notRecoveredCount > 0) {
+        return res.status(200).json({
+          status: 1,
+          message: "Vous avez des commandes passées non recouvrées. Veuillez attendre leur remboursement avant de passer une nouvelle commande."
+        });
+      }
   
       const serviceMap = {
         "Flash Airtel": { phone: user.flashPhone, type: "flash" },
