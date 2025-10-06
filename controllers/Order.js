@@ -412,7 +412,7 @@ exports.launchOrder = async (req, res) => {
 
       const notRecoveredCount = await Order.countDocuments({
         agent_id: req.auth.userId,
-        status: { $ne: "recovery" }, // pas encore recouvrée
+        status: { $in: ["partial", "initial"]}, // pas encore recouvrée
         date: { $lt: today }         // toutes les dates avant aujourd'hui
       });
 
